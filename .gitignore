@@ -1,0 +1,31 @@
+# Environment files — NEVER commit these
+.env
+.env.local
+*.env.local
+
+# Go build output
+backend/bin/
+backend/vendor/
+*.exe
+*.test
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Uploads (user-generated content, not code)
+backend/uploads/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+.vscode/
+
+# Logs
+*.log
+/tmp/
