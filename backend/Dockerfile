@@ -1,7 +1,11 @@
 # ---- Build stage ----
+# Use a recent Go image; GOTOOLCHAIN=auto lets it fetch the exact version if needed
 FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
+
+# Allow Go to automatically download the required toolchain version
+ENV GOTOOLCHAIN=auto
 
 # Copy dependency files first (better layer caching)
 COPY go.mod go.sum ./
@@ -20,13 +24,9 @@ RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
 
-# Copy binary from builder
 COPY --from=builder /app/bin/api ./bin/api
-
-# Copy migrations
 COPY --from=builder /app/migrations ./migrations
 
-# Create uploads directory
 RUN mkdir -p uploads
 
 EXPOSE 8080
