@@ -1,7 +1,7 @@
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from "axios";
 import type { ApiResponse } from "@/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://peoplesshop.onrender.com/api/v1";
 
 // ---- Token management ----
 // Tokens are kept in memory (not localStorage) to avoid XSS exposure.
