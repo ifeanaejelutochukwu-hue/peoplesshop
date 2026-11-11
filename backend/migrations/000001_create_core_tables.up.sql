@@ -3,6 +3,10 @@
 -- Peoplesshop Retail Management System
 -- =============================================================
 
+-- Extensions (required for GIN indexes and UUID generation)
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+
 -- ---- Users & Auth ----
 
 CREATE TABLE IF NOT EXISTS roles (
