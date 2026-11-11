@@ -2,10 +2,10 @@
 
 import React, { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Search, ShoppingCart, Plus, Minus, X, CreditCard, Loader2, Package, Printer } from "lucide-react";
+import { Search, ShoppingCart, Plus, Minus, X, CreditCard, Loader2, Package, Printer, User, Tag } from "lucide-react";
 import { toast } from "sonner";
 
-import { apiClient, apiGet, getApiError } from "@/lib/api";
+import { apiClient, apiGet, apiPost, getApiError } from "@/lib/api";
 import { formatMoney, nairaToKobo, koboToNaira } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import type { Product, ProductVariant, Category, ApiResponse, CartItem, CartPayment } from "@/types";
+import type { Product, ProductVariant, Category, Customer, ApiResponse, CartItem, CartPayment } from "@/types";
 
 const PAYMENT_METHODS = [
   { value: "cash", label: "Cash" },
@@ -31,10 +31,26 @@ export default function POSPage() {
   const [payments, setPayments] = useState<CartPayment[]>([{ method: "cash", amount_kobo: 0 }]);
   const [receiptData, setReceiptData] = useState<{ reference: string; total: number } | null>(null);
   const [variantSelectProduct, setVariantSelectProduct] = useState<Product | null>(null);
+  const [customerId, setCustomerId] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [discountItemId, setDiscountItemId] = useState<string | null>(null);
+  const [discountInput, setDiscountInput] = useState("");
 
   const { data: categories } = useQuery<Category[]>({
     queryKey: ["categories"],
     queryFn: () => apiGet<Category[]>("/categories"),
+  });
+
+  // Load customers for the checkout customer selector
+  const { data: customersData } = useQuery({
+    queryKey: ["customers-pos", customerSearch],
+    queryFn: async () => {
+      const params: Record<string, unknown> = { page: 1, page_size: 20 };
+      if (customerSearch) params.search = customerSearch;
+      const resp = await apiClient.get<ApiResponse<Customer[]>>("/customers", { params });
+      return resp.data.data ?? [];
+    },
+    enabled: checkoutOpen,
   });
 
   const { data: productsData, isLoading } = useQuery({
@@ -95,14 +111,28 @@ export default function POSPage() {
     }));
   }, []);
 
-  const cartSubtotal = cart.reduce((s, i) => s + i.unit_price_kobo * i.quantity - i.discount_kobo, 0);
+  const applyDiscount = (variantId: string, discountNaira: number) => {
+    const discountKobo = nairaToKobo(discountNaira);
+    setCart((prev) => prev.map((i) => {
+      if (i.variant.id !== variantId) return i;
+      const maxDiscount = i.unit_price_kobo * i.quantity;
+      return { ...i, discount_kobo: Math.min(discountKobo, maxDiscount) };
+    }));
+    setDiscountItemId(null);
+    setDiscountInput("");
+  };
+
+  const cartSubtotal = cart.reduce((s, i) => s + i.unit_price_kobo * i.quantity, 0);
+  const cartDiscount = cart.reduce((s, i) => s + i.discount_kobo, 0);
+  const cartTotal = cartSubtotal - cartDiscount;
   const totalPaid = payments.reduce((s, p) => s + p.amount_kobo, 0);
-  const change = totalPaid - cartSubtotal;
+  const change = totalPaid - cartTotal;
 
   // ---- Checkout ----
   const checkoutMutation = useMutation({
     mutationFn: async () => {
       const resp = await apiClient.post<ApiResponse<{ id: string; reference: string; total_kobo: number }>>("/sales", {
+        customer_id: customerId || undefined,
         items: cart.map((i) => ({
           variant_id: i.variant.id,
           quantity: i.quantity,
@@ -121,6 +151,8 @@ export default function POSPage() {
       setReceiptData({ reference: data.reference, total: data.total_kobo });
       setCart([]);
       setPayments([{ method: "cash", amount_kobo: 0 }]);
+      setCustomerId("");
+      setCustomerSearch("");
       setCheckoutOpen(false);
       toast.success(`Sale ${data.reference} completed`);
     },
@@ -153,7 +185,7 @@ export default function POSPage() {
 
   const openCheckout = () => {
     if (cart.length === 0) return;
-    setPayments([{ method: "cash", amount_kobo: cartSubtotal }]);
+    setPayments([{ method: "cash", amount_kobo: cartTotal }]);
     setCheckoutOpen(true);
   };
 
@@ -270,9 +302,38 @@ export default function POSPage() {
                   <p className="text-xs text-text-muted">
                     {[item.variant.size, item.variant.colour].filter(Boolean).join(" / ")} · {item.variant.sku}
                   </p>
-                  <p className="text-sm font-semibold text-brand-purple mt-1">
-                    {formatMoney(item.unit_price_kobo * item.quantity)}
-                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-sm font-semibold text-brand-purple">
+                      {formatMoney((item.unit_price_kobo * item.quantity) - item.discount_kobo)}
+                    </p>
+                    {item.discount_kobo > 0 && (
+                      <span className="text-xs line-through text-text-muted">{formatMoney(item.unit_price_kobo * item.quantity)}</span>
+                    )}
+                    <button
+                      onClick={() => { setDiscountItemId(item.variant.id); setDiscountInput(koboToNaira(item.discount_kobo) > 0 ? String(koboToNaira(item.discount_kobo)) : ""); }}
+                      className="text-xs text-brand-purple hover:underline flex items-center gap-0.5"
+                    >
+                      <Tag className="h-2.5 w-2.5" />Discount
+                    </button>
+                  </div>
+                  {/* Inline discount input */}
+                  {discountItemId === item.variant.id && (
+                    <div className="flex items-center gap-1 mt-1.5">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="₦ amount"
+                        value={discountInput}
+                        onChange={e => setDiscountInput(e.target.value)}
+                        className="h-7 text-xs w-24"
+                        autoFocus
+                        onKeyDown={e => { if (e.key === "Enter") applyDiscount(item.variant.id, parseFloat(discountInput) || 0); if (e.key === "Escape") setDiscountItemId(null); }}
+                      />
+                      <Button size="sm" className="h-7 px-2 text-xs" onClick={() => applyDiscount(item.variant.id, parseFloat(discountInput) || 0)}>OK</Button>
+                      <button className="text-xs text-text-muted hover:text-red-500" onClick={() => setDiscountItemId(null)}>✕</button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   <button onClick={() => removeFromCart(item.variant.id)} className="text-text-muted hover:text-red-500 transition-colors">
@@ -294,10 +355,22 @@ export default function POSPage() {
         </div>
 
         {/* Cart footer */}
-        <div className="border-t border-border p-3 space-y-3">
-          <div className="flex justify-between text-sm font-semibold text-text-primary">
+        <div className="border-t border-border p-3 space-y-2">
+          {cartDiscount > 0 && (
+            <div className="flex justify-between text-sm text-text-muted">
+              <span>Subtotal</span>
+              <span className="tabular-nums">{formatMoney(cartSubtotal)}</span>
+            </div>
+          )}
+          {cartDiscount > 0 && (
+            <div className="flex justify-between text-sm text-green-700">
+              <span>Discount</span>
+              <span className="tabular-nums">-{formatMoney(cartDiscount)}</span>
+            </div>
+          )}
+          <div className="flex justify-between font-semibold text-text-primary">
             <span>Total</span>
-            <span className="text-lg">{formatMoney(cartSubtotal)}</span>
+            <span className="text-lg">{formatMoney(cartTotal)}</span>
           </div>
           <Button
             className="w-full"
@@ -305,7 +378,7 @@ export default function POSPage() {
             disabled={cart.length === 0}
           >
             <CreditCard className="h-4 w-4" />
-            Charge {cart.length > 0 ? formatMoney(cartSubtotal) : ""}
+            Charge {cart.length > 0 ? formatMoney(cartTotal) : ""}
           </Button>
         </div>
       </div>
@@ -348,22 +421,73 @@ export default function POSPage() {
           </DialogHeader>
 
           <div className="space-y-3">
+            {/* Customer selector */}
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5">
+                <User className="h-3.5 w-3.5" />Customer <span className="text-text-muted font-normal">(optional)</span>
+              </Label>
+              <Select value={customerId} onValueChange={setCustomerId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Walk-in customer (default)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Walk-in Customer</SelectItem>
+                  {customersData?.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.full_name}{c.phone ? ` · ${c.phone}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                placeholder="Search customer by name or phone…"
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+                className="h-7 text-xs"
+              />
+            </div>
+
+            <Separator />
+
             {/* Order summary */}
-            <div className="rounded-md border border-border p-3 space-y-1.5 max-h-40 overflow-y-auto">
+            <div className="rounded-md border border-border p-3 space-y-1.5 max-h-36 overflow-y-auto">
               {cart.map((item) => (
                 <div key={item.variant.id} className="flex justify-between text-sm">
-                  <span className="truncate max-w-[200px]">
+                  <span className="truncate max-w-[200px] text-text-primary">
                     {item.product.name} · {[item.variant.size, item.variant.colour].filter(Boolean).join("/")} × {item.quantity}
                   </span>
-                  <span className="font-medium tabular-nums">{formatMoney(item.unit_price_kobo * item.quantity)}</span>
+                  <div className="text-right flex-shrink-0 ml-2">
+                    <span className="font-medium tabular-nums">
+                      {formatMoney((item.unit_price_kobo * item.quantity) - item.discount_kobo)}
+                    </span>
+                    {item.discount_kobo > 0 && (
+                      <span className="block text-xs line-through text-text-muted tabular-nums">
+                        {formatMoney(item.unit_price_kobo * item.quantity)}
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
 
-            <Separator />
-            <div className="flex justify-between font-semibold">
-              <span>Total</span>
-              <span className="text-lg text-brand-purple">{formatMoney(cartSubtotal)}</span>
+            {/* Totals */}
+            <div className="space-y-1">
+              {cartDiscount > 0 && (
+                <div className="flex justify-between text-sm text-text-muted">
+                  <span>Subtotal</span>
+                  <span className="tabular-nums">{formatMoney(cartSubtotal)}</span>
+                </div>
+              )}
+              {cartDiscount > 0 && (
+                <div className="flex justify-between text-sm text-green-700">
+                  <span>Discount</span>
+                  <span className="tabular-nums">-{formatMoney(cartDiscount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-base pt-1 border-t border-border">
+                <span>Total</span>
+                <span className="text-brand-purple tabular-nums">{formatMoney(cartTotal)}</span>
+              </div>
             </div>
 
             {/* Payments */}
@@ -402,21 +526,21 @@ export default function POSPage() {
                 onClick={() => setPayments((ps) => [...ps, { method: "bank_transfer", amount_kobo: 0 }])}
                 className="text-xs text-brand-purple hover:underline flex items-center gap-1"
               >
-                <Plus className="h-3 w-3" /> Add payment method
+                <Plus className="h-3 w-3" />Add payment method
               </button>
             </div>
 
-            {/* Change */}
+            {/* Change / Outstanding */}
             {change > 0 && (
-              <div className="flex justify-between text-sm bg-green-50 border border-green-200 rounded-md p-2">
-                <span className="text-green-700 font-medium">Change</span>
-                <span className="text-green-700 font-semibold">{formatMoney(change)}</span>
+              <div className="flex justify-between text-sm bg-green-50 border border-green-200 rounded-md p-2.5">
+                <span className="text-green-700 font-medium">Change to give back</span>
+                <span className="text-green-700 font-bold tabular-nums">{formatMoney(change)}</span>
               </div>
             )}
-            {change < 0 && (
-              <div className="flex justify-between text-sm bg-amber-50 border border-amber-200 rounded-md p-2">
-                <span className="text-amber-700 font-medium">Outstanding</span>
-                <span className="text-amber-700 font-semibold">{formatMoney(-change)}</span>
+            {change < 0 && totalPaid > 0 && (
+              <div className="flex justify-between text-sm bg-amber-50 border border-amber-200 rounded-md p-2.5">
+                <span className="text-amber-700 font-medium">Still outstanding</span>
+                <span className="text-amber-700 font-bold tabular-nums">{formatMoney(-change)}</span>
               </div>
             )}
           </div>

@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { DataTable, type Column } from "@/components/tables/data-table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 import { Package } from "lucide-react";
 import type { ProductVariant, ApiResponse } from "@/types";
 
@@ -32,7 +33,7 @@ export default function InventoryPage() {
       key: "product",
       header: "Product",
       render: (v) => (
-        <div className="flex items-center gap-3">
+        <Link href={`/products/${v.product_id}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
           <div className="h-9 w-9 rounded-md bg-background border border-border flex items-center justify-center flex-shrink-0 overflow-hidden">
             {v.product?.image_url ? (
               <img src={v.product.image_url} alt="" className="h-full w-full object-cover" />
@@ -41,10 +42,10 @@ export default function InventoryPage() {
             )}
           </div>
           <div>
-            <p className="font-medium">{v.product?.name ?? "—"}</p>
+            <p className="font-medium text-text-primary">{v.product?.name ?? "—"}</p>
             {v.product?.category && <p className="text-xs text-text-muted">{v.product.category.name}</p>}
           </div>
-        </div>
+        </Link>
       ),
     },
     { key: "sku", header: "SKU", render: (v) => <span className="font-mono text-xs text-text-muted">{v.sku}</span> },

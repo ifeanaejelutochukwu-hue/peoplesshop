@@ -22,6 +22,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import Link from "next/link";
+import { Store } from "lucide-react";
 import type { Product, Category, ProductVariant, ApiResponse } from "@/types";
 
 const variantSchema = z.object({
@@ -123,9 +125,18 @@ export default function ProductDetailPage() {
         actions={
           <div className="flex gap-2">
             {!editMode ? (
-              <Button variant="outline" size="sm" onClick={startEdit}>
-                <Pencil className="h-3.5 w-3.5" />Edit
-              </Button>
+              <>
+                <Button variant="outline" size="sm" onClick={startEdit}>
+                  <Pencil className="h-3.5 w-3.5" />Edit
+                </Button>
+                {product.is_active && (product.total_stock_units ?? 0) > 0 && (
+                  <Button size="sm" asChild>
+                    <Link href="/pos">
+                      <Store className="h-3.5 w-3.5" />Sell
+                    </Link>
+                  </Button>
+                )}
+              </>
             ) : (
               <>
                 <Button variant="outline" size="sm" onClick={() => setEditMode(false)}>
