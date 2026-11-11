@@ -127,15 +127,27 @@ export default function POSPage() {
     onError: (err) => toast.error(getApiError(err)),
   });
 
-  const handleProductClick = (product: Product) => {
-    if (!product.variants || product.variants.length === 0) {
-      toast.error("This product has no variants");
-      return;
-    }
-    if (product.variants.length === 1) {
-      addToCart(product.variants[0], product);
-    } else {
-      setVariantSelectProduct(product);
+  const [loadingVariantsFor, setLoadingVariantsFor] = useState<string | null>(null);
+
+  const handleProductClick = async (product: Product) => {
+    // Fetch full product with variants on click
+    setLoadingVariantsFor(product.id);
+    try {
+      const resp = await apiClient.get<ApiResponse<Product>>(`/products/${product.id}`);
+      const fullProduct = resp.data.data;
+      if (!fullProduct || !fullProduct.variants || fullProduct.variants.length === 0) {
+        toast.error("This product has no variants configured yet");
+        return;
+      }
+      if (fullProduct.variants.length === 1) {
+        addToCart(fullProduct.variants[0], fullProduct);
+      } else {
+        setVariantSelectProduct(fullProduct);
+      }
+    } catch {
+      toast.error("Could not load product details");
+    } finally {
+      setLoadingVariantsFor(null);
     }
   };
 
@@ -195,11 +207,13 @@ export default function POSPage() {
                   <button
                     key={product.id}
                     onClick={() => handleProductClick(product)}
-                    disabled={!inStock}
+                    disabled={!inStock || loadingVariantsFor === product.id}
                     className="group text-left rounded-lg border border-border bg-white p-3 transition-all hover:border-brand-purple hover:shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <div className="h-16 w-full rounded-md bg-background flex items-center justify-center mb-2 overflow-hidden">
-                      {product.image_url ? (
+                      {loadingVariantsFor === product.id ? (
+                        <Loader2 className="h-6 w-6 text-brand-purple animate-spin" />
+                      ) : product.image_url ? (
                         <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
                       ) : (
                         <Package className="h-6 w-6 text-gray-300" />
